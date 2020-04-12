@@ -1,15 +1,19 @@
+import logging
 import traceback
 
 import psycopg2
 from django.db import IntegrityError
 
 from apps.fyle_expense.models import Expense, ExpenseGroup
+from apps.task_log.exceptions import MissingMappingsError
 from apps.task_log.models import TaskLog
 from apps.xero_workspace.models import EmployeeMapping, CategoryMapping, ProjectMapping, Invoice, InvoiceLineItem, \
     FyleCredential, XeroCredential
 from apps.xero_workspace.utils import connect_to_fyle, connect_to_xero
 from fyle_jobs import FyleJobsSDK
 from fyle_xero_integration_web_app import settings
+
+LOGGER = logging.getLogger(__name__)
 
 
 def schedule_expense_group_creation(workspace_id, user):
@@ -46,10 +50,11 @@ def schedule_expense_group_creation(workspace_id, user):
         task_log.task_id = created_job['id']
         task_log.save()
     except FyleCredential.DoesNotExist:
+        LOGGER.error('Error: Fyle Credentials not found for this workspace.')
         task_log.detail = {
             'error': 'Please connect your Source (Fyle) Account'
         }
-        task_log.status = 'FATAL'
+        task_log.status = 'FYLE CONNECTION ERROR'
         task_log.save()
 
 
@@ -121,16 +126,18 @@ def fetch_expenses_and_create_groups(workspace_id, task_log, user):
         schedule_invoice_creation(workspace_id, expense_group_ids, user)
 
     except FyleCredential.DoesNotExist:
+        LOGGER.error('Error: Fyle Credentials not found for this workspace.')
         task_log.detail = {
             'error': 'Please connect your Source (Fyle) Account'
         }
-        task_log.status = 'FATAL'
+        task_log.status = 'FYLE CONNECTION ERROR'
         task_log.save()
 
     except Exception:
         error = traceback.format_exc()
+        LOGGER.exception(f'Error: Workspace id - {workspace_id}\n{error}')
         task_log.detail = {
-            'error': error
+            'error': 'Please contact system administrator.'
         }
         task_log.status = 'FATAL'
         task_log.save()
@@ -175,7 +182,7 @@ def check_mappings(expense_group):
                     pass
 
     if mappings_error:
-        raise Exception(mappings_error)
+        raise MissingMappingsError(message=mappings_error)
 
 
 def create_invoice_and_post_to_xero(expense_group, task_log):
@@ -204,20 +211,32 @@ def create_invoice_and_post_to_xero(expense_group, task_log):
         task_log.save()
 
     except XeroCredential.DoesNotExist:
+        LOGGER.error('Error: Xero Credentials not found for this workspace.')
         expense_group.status = 'Failed'
         expense_group.save()
         task_log.detail = {
             'error': 'Please connect your Destination (Xero) Account'
         }
-        task_log.status = 'FATAL'
+        task_log.status = 'XERO CONNECTION ERROR'
+        task_log.save()
+
+    except MissingMappingsError as error:
+        LOGGER.error(f'Error: {error.message}')
+        expense_group.status = 'Failed'
+        expense_group.save()
+        task_log.detail = {
+            'error': error.message
+        }
+        task_log.status = 'MISSING MAPPINGS'
         task_log.save()
 
     except Exception:
         error = traceback.format_exc()
+        LOGGER.exception(f'Error: Workspace id - {task_log.workspace.id}\n{error}')
         expense_group.status = 'Failed'
         expense_group.save()
         task_log.detail = {
-            'error': error
+            'error': 'Please contact system administrator.'
         }
         task_log.status = 'FATAL'
         task_log.save()
@@ -246,7 +265,7 @@ def generate_invoice_request_data(invoice):
             "Description": line_item.description,
             "Quantity": "1",
             "UnitAmount": str(line_item.amount),
-            "AccountCode": str(line_item.account_code),
+            "AccountCode": line_item.account_code,
             "Tracking": [{
                 "Name": line_item.tracking_category_name,
                 "Option": line_item.tracking_category_option,
