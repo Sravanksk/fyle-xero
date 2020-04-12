@@ -97,7 +97,25 @@ WSGI_APPLICATION = 'fyle_xero_integration_web_app.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
 
-DATABASES['default'] = dj_database_url.config(default=config('DATABASE_URL'))
+if os.environ.get('DATABASE_URL', ''):
+    DATABASES = {
+        'default': dj_database_url.config()
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
+            'OPTIONS': {
+                'options': '-c search_path={0}'.format(os.environ.get('DB_SCHEMA'))
+            },
+            'NAME': os.environ.get('DB_NAME'),
+            'USER': os.environ.get('DB_USER'),
+            'PASSWORD': os.environ.get('DB_PASSWORD'),
+            'HOST': os.environ.get('DB_HOST'),
+            'PORT': os.environ.get('DB_PORT'),
+        }
+    }
+
 
 # Password validation
 # https://docs.djangoproject.com/en/2.2/ref/settings/#auth-password-validators
