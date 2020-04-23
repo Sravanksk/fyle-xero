@@ -14,20 +14,18 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from decorator_include import decorator_include
-from django.conf.urls.static import static
 from django.contrib import admin
 from django.contrib.auth.decorators import login_required
 from django.urls import path, include
 
 from apps.user.views import UserLoginView
 from apps.xero_workspace.decorators import is_workspace_user
-from fyle_xero_integration_web_app import settings
 
-urlpatterns = [path('admin/', admin.site.urls),
-               path('accounts/', include('allauth.urls')),
-               path('', UserLoginView.as_view(), name='home'),
-               path('workspace/',
-                    decorator_include([login_required, is_workspace_user],
-                                      ('apps.xero_workspace.urls', 'xero_workspace'))),
-               path('workspace_jobs/', include('apps.xero_workspace.job_urls'))
-               ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('accounts/', include('allauth.urls')),
+    path('', UserLoginView.as_view(), name='home'),
+    path('workspace/', decorator_include([login_required, is_workspace_user],
+                                         ('apps.xero_workspace.urls', 'xero_workspace'))),
+    path('workspace_jobs/', include('apps.xero_workspace.job_urls'))
+]
